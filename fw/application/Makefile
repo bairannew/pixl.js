@@ -8,7 +8,8 @@ COMP_DIR := ../components
 U8G2_ROOT := ../components/u8g2/csrc
 CHAMELEON_ROOT :=$(COMP_DIR)/chameleon-ultra/firmware
 
-APP_VERSION ?= 1
+APP_VERSION ?= 10
+FW_VERSION ?= v9.0
 RELEASE ?= 1
 BOARD ?= OLED
 
@@ -194,6 +195,7 @@ SRC_FILES += \
   $(PROJ_DIR)/mod/df/df_core.c \
   $(PROJ_DIR)/mod/df/df_proto_info.c \
   $(PROJ_DIR)/mod/df/df_proto_vfs.c \
+  $(PROJ_DIR)/mod/df/star_upload_hook.c \
   $(PROJ_DIR)/mod/df/df_core.c \
   $(PROJ_DIR)/mui/mui_view.c \
   $(PROJ_DIR)/mui/mui_view_port.c \
@@ -227,67 +229,11 @@ SRC_FILES += \
   $(PROJ_DIR)/app/ble/view/ble_status_view.c \
   $(PROJ_DIR)/app/ble/scene/ble_scene.c \
   $(PROJ_DIR)/app/ble/scene/ble_scene_connect_start.c \
-  $(PROJ_DIR)/app/player/app_player.c \
-  $(PROJ_DIR)/app/player/view/player_view.c \
-  $(PROJ_DIR)/app/player/scene/player_scene.c \
-  $(PROJ_DIR)/app/player/scene/player_scene_file_browser.c \
-  $(PROJ_DIR)/app/player/scene/player_scene_play.c \
-  $(PROJ_DIR)/app/game/app_game.c \
-  $(PROJ_DIR)/app/game/view/game_view.c \
-  $(PROJ_DIR)/app/game/scene/game_scene.c \
-  $(PROJ_DIR)/app/game/scene/game_scene_game_list.c \
-  $(PROJ_DIR)/app/game/scene/game_scene_play.c \
-  $(PROJ_DIR)/app/game/port/common/driver.c \
-  $(PROJ_DIR)/app/game/port/tiny_lander/tiny_lander.c \
-  $(PROJ_DIR)/app/game/port/tiny_invaders/tiny_invaders.c \
-  $(PROJ_DIR)/app/game/port/tiny_arkanoid/tiny_arkanoid.c \
-  $(PROJ_DIR)/app/game/port/tiny_tris/tiny_tris.c \
-  $(PROJ_DIR)/app/amiibolink/app_amiibolink.c \
-  $(PROJ_DIR)/app/amiibolink/view/amiibolink_view.c \
-  $(PROJ_DIR)/app/amiibolink/scene/amiibolink_scene.c \
-  $(PROJ_DIR)/app/amiibolink/scene/amiibolink_scene_main.c \
-  $(PROJ_DIR)/app/amiibolink/scene/amiibolink_scene_menu.c \
-  $(PROJ_DIR)/app/amiibolink/scene/amiibolink_scene_menu_mode.c \
-  $(PROJ_DIR)/app/amiibolink/scene/amiibolink_scene_menu_ver.c \
-  $(PROJ_DIR)/app/amiidb/app_amiidb.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_main.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_game_list.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_amiibo_detail.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_amiibo_detail_menu.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_amiibo_search.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_fav_list.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_fav_select.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_fav_list_menu.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_data_list.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_data_select.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_data_list_menu.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_settings.c \
-  $(PROJ_DIR)/app/amiidb/scene/amiidb_scene_settings_slot_num.c \
-  $(PROJ_DIR)/app/amiidb/api/amiidb_api_slot.c \
-  $(PROJ_DIR)/app/amiidb/api/amiidb_api_fav.c \
-  $(PROJ_DIR)/app/amiidb/api/amiidb_api_db.c \
-  $(PROJ_DIR)/app/amiidb/view/amiibo_view.c \
-  $(PROJ_DIR)/app/chameleon/app_chameleon.c \
-  $(PROJ_DIR)/app/chameleon/view/chameleon_view.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_factory.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_main.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_advanced.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_advanced_id_size.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_advanced_id_edit.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_slot.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_slot_select.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_data.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_type.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_slot_num_select.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_write_mode_select.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_data_file_load.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_data_file_save.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene_menu_card_set_name.c \
-  $(PROJ_DIR)/app/chameleon/scene/chameleon_scene.c \
   $(PROJ_DIR)/app/chameleon/port/fds_utils.c \
   $(PROJ_DIR)/app/chameleon/port/tag_helper.c \
+  $(PROJ_DIR)/app/chameleon/port/sky_badge_db.c \
+  $(PROJ_DIR)/app/chameleon/port/sky_badge_parser.c \
+  $(PROJ_DIR)/app/chameleon/port/sky_aar_inject.c \
   $(PROJ_DIR)/app/desktop/app_desktop.c \
   $(PROJ_DIR)/app/desktop/view/app_list_view.c \
   $(PROJ_DIR)/app/amiibo/app_amiibo.c \
@@ -297,6 +243,15 @@ SRC_FILES += \
   $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_amiibo_detail_menu.c \
   $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_file_browser.c \
   $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_file_browser_menu.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_channel_select.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_account_select.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_account_input.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_category_select.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_category_input.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_action_menu.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_badge_list.c \
+  $(PROJ_DIR)/app/amiibo/scene/amiibo_scene_badge_name_input.c \
+  $(PROJ_DIR)/app/amiibo/port/star_channels.c \
   $(PROJ_DIR)/app/settings/app_settings.c \
   $(PROJ_DIR)/app/settings/scene/settings_scene.c \
   $(PROJ_DIR)/app/settings/scene/settings_scene_main.c \
@@ -308,21 +263,12 @@ SRC_FILES += \
   $(PROJ_DIR)/app/settings/scene/settings_scene_storage.c \
   $(PROJ_DIR)/app/settings/scene/settings_scene_about.c \
   $(PROJ_DIR)/app/settings/scene/settings_scene_app_management.c \
-  $(PROJ_DIR)/i18n/en_US.c \
+  $(PROJ_DIR)/app/activation/app_activation.c \
+  $(PROJ_DIR)/app/activation/scene/activation_scene.c \
+  $(PROJ_DIR)/app/activation/scene/activation_scene_main.c \
+  $(PROJ_DIR)/mod/activation.c \
   $(PROJ_DIR)/i18n/zh_Hans.c \
   $(PROJ_DIR)/i18n/zh_TW.c \
-  $(PROJ_DIR)/i18n/es_ES.c \
-  $(PROJ_DIR)/i18n/hu_HU.c \
-  $(PROJ_DIR)/i18n/de_DE.c \
-  $(PROJ_DIR)/i18n/fr_FR.c \
-  $(PROJ_DIR)/i18n/nl_NL.c \
-  $(PROJ_DIR)/i18n/pt_BR.c \
-  $(PROJ_DIR)/i18n/ja_JP.c \
-  $(PROJ_DIR)/i18n/pt_PT.c \
-  $(PROJ_DIR)/i18n/it_IT.c \
-  $(PROJ_DIR)/i18n/ru_RU.c \
-  $(PROJ_DIR)/i18n/pl_PL.c \
-  $(PROJ_DIR)/i18n/sv_SE.c \
   $(PROJ_DIR)/i18n/language.c \
   $(PROJ_DIR)/hal/hal_nfc_t2t.c \
   $(PROJ_DIR)/amiidb/db_amiibo.c \
@@ -564,9 +510,12 @@ INC_FOLDERS += \
   $(PROJ_DIR)/app/desktop/view \
   $(PROJ_DIR)/app/settings \
   $(PROJ_DIR)/app/settings/scene \
+  $(PROJ_DIR)/app/activation \
+  $(PROJ_DIR)/app/activation/scene \
   $(PROJ_DIR)/app/amiibo \
   $(PROJ_DIR)/app/amiibo/view \
   $(PROJ_DIR)/app/amiibo/scene \
+  $(PROJ_DIR)/app/amiibo/port \
   $(PROJ_DIR)/app/player \
   $(PROJ_DIR)/app/player/view \
   $(PROJ_DIR)/app/player/scene \
@@ -640,7 +589,13 @@ CFLAGS += -DEBUG_NRF
 #CFLAGS += -DU8G2_USE_LARGE_FONTS
 else
 CFLAGS += -DNDEBUG
-CFLAGS += -DU8G2_USE_LARGE_FONTS
+# [fix4] 关闭完整版 GB2312 字库 (7575 字形 / 203KB) 以避免 FLASH 溢出.
+# 完整版会让 .text 段超出 application FLASH 区 (0x5B000) 约 64KB.
+# 改用精简版 (4086 字形 / 110KB), 已经覆盖 GB2312 一级全部 3755 个常用汉字
+# + 源码引用字符 (i18n / sky_badge_db 中文名等), 实际显示无影响.
+# 如需重新启用完整字库, 需要先把 application FLASH 至少扩到 0x70000
+# (链接脚本 ld/application.ld + bootloader 起始地址同步调整, 风险较高).
+#CFLAGS += -DU8G2_USE_LARGE_FONTS
 endif
 CFLAGS += -DMBEDTLS_CONFIG_FILE=\"nrf_crypto_mbedtls_config.h\"
 CFLAGS += -DM_USE_THREAD_BACKEND=0
@@ -739,8 +694,8 @@ sdk_config:
 	java -jar $(CMSIS_CONFIG_TOOL) $(SDK_CONFIG_FILE)
 
 version:
-	@cd ../ && python3 scripts/version_gen.py
-	@echo build: BOARD=$(BOARD) RELEASE=$(RELEASE) APP_VERSION=$(APP_VERSION)
+	@cd ../ && FW_VERSION=$(FW_VERSION) python3 scripts/version_gen.py
+	@echo build: BOARD=$(BOARD) RELEASE=$(RELEASE) APP_VERSION=$(APP_VERSION) FW_VERSION=$(FW_VERSION)
 
 settingsgen:
 	nrfutil settings generate --family NRF52 --application $(OUTPUT_DIRECTORY)/pixljs.hex --application-version $(APP_VERSION) --bootloader-version 1 --bl-settings-version 1 $(OUTPUT_DIRECTORY)/settings.hex

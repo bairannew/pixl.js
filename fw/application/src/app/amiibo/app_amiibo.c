@@ -15,6 +15,7 @@
 
 #include "amiibo_helper.h"
 #include "i18n/language.h"
+#include "star_upload_hook.h"   /* v8: 关闭时强制清 upload hook */
 
 static void app_amiibo_on_run(mini_app_inst_t *p_app_inst);
 static void app_amiibo_on_kill(mini_app_inst_t *p_app_inst);
@@ -55,9 +56,27 @@ void app_amiibo_on_run(mini_app_inst_t *p_app_inst) {
     string_init(p_app_handle->current_folder);
     string_array_init(p_app_handle->amiibo_files);
 
+    /* v4: 3-level Star navigator state */
+    p_app_handle->star_channel_idx = -1;
+    string_init(p_app_handle->star_account_dir);
+    string_init(p_app_handle->star_badge_pending);
+    string_init(p_app_handle->star_badge_autofill);
+
+    /* v8.2: 4 级导航 + 重命名状态 */
+    string_init(p_app_handle->star_category_dir);
+    p_app_handle->star_rename_mode = false;
+    p_app_handle->star_rename_target_kind = STAR_RENAME_KIND_ACCOUNT;
+
+    /* v8: wait_upload 流程相关 */
+    string_init(p_app_handle->star_wait_dir_full);
+    string_init(p_app_handle->star_wait_placeholder);
+    p_app_handle->star_wait_hook_fired  = false;
+    p_app_handle->star_wait_rename_mode = false;
+
     mui_scene_dispatcher_set_user_data(p_app_handle->p_scene_dispatcher, p_app_handle);
     mui_scene_dispatcher_set_scene_defines(p_app_handle->p_scene_dispatcher, amiibo_scene_defines, AMIIBO_SCENE_MAX);
-    mui_mui_scene_dispatcher_set_default_scene_id(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_FILE_BROWSER);
+    /* v4: enter Star navigator at channel-select instead of legacy file browser */
+    mui_mui_scene_dispatcher_set_default_scene_id(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_CHANNEL_SELECT);
 
     mui_view_dispatcher_add_view(p_app_handle->p_view_dispatcher, AMIIBO_VIEW_ID_LIST,
                                  mui_list_view_get_view(p_app_handle->p_list_view));
@@ -94,16 +113,12 @@ void app_amiibo_on_run(mini_app_inst_t *p_app_inst) {
                 app_amiibo_try_mount_drive(p_app_handle);
             }
 
-            if (p_cache_data->current_scene_id == AMIIBO_SCENE_AMIIBO_DETAIL) {
-                if (string_size(p_app_handle->current_file) > 0) {
-                    p_app_handle->reload_amiibo_files = true;
-                    mui_scene_dispatcher_next_scene(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_AMIIBO_DETAIL);
-                } else {
-                    mui_scene_dispatcher_next_scene(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_FILE_BROWSER);
-                }
-            } else if (p_cache_data->current_scene_id == AMIIBO_SCENE_FILE_BROWSER) {
-                mui_scene_dispatcher_next_scene(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_FILE_BROWSER);
-            }
+            /* v4: simplified restore — always come back to the channel selector.
+             * The previous "remember exact scene" logic referenced FILE_BROWSER
+             * which is no longer the main path. Restoring deep state (badge
+             * detail view) across hibernate is feature-creep we're skipping. */
+            (void)p_cache_data->current_scene_id;
+            mui_scene_dispatcher_next_scene(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_CHANNEL_SELECT);
             return;
         }
     }
@@ -111,11 +126,16 @@ void app_amiibo_on_run(mini_app_inst_t *p_app_inst) {
     p_app_handle->current_drive = vfs_get_default_drive();
     string_set_str(p_app_handle->current_folder, "/");
     app_amiibo_try_mount_drive(p_app_handle);
-    mui_scene_dispatcher_next_scene(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_FILE_BROWSER);
+    mui_scene_dispatcher_next_scene(p_app_handle->p_scene_dispatcher, AMIIBO_SCENE_CHANNEL_SELECT);
 }
 
 void app_amiibo_on_kill(mini_app_inst_t *p_app_inst) {
     app_amiibo_t *p_app_handle = p_app_inst->p_handle;
+
+    /* v8: 防御性 — 如果 app 在 wait_upload 场景里被强杀 (低电关机 / launcher
+     * 切走), 当前还挂着 hook 指针 (user_data 指向即将被释放的 app 句柄).
+     * 这里强制清掉, 防止后续 BLE 写入触发 use-after-free. */
+    star_upload_hook_clear();
 
     uint32_t current_scene_id = mui_scene_dispatcher_current_scene(p_app_handle->p_scene_dispatcher);
     if (app_amiibo_info.hibernate_enabled &&
@@ -150,6 +170,18 @@ void app_amiibo_on_kill(mini_app_inst_t *p_app_inst) {
     string_clear(p_app_handle->current_folder);
     string_array_clear(p_app_handle->amiibo_files);
 
+    /* v4 cleanup */
+    string_clear(p_app_handle->star_account_dir);
+    string_clear(p_app_handle->star_badge_pending);
+    string_clear(p_app_handle->star_badge_autofill);
+
+    /* v8.2 cleanup */
+    string_clear(p_app_handle->star_category_dir);
+
+    /* v8 cleanup */
+    string_clear(p_app_handle->star_wait_dir_full);
+    string_clear(p_app_handle->star_wait_placeholder);
+
     mui_mem_free(p_app_handle);
 
     p_app_inst->p_handle = NULL;
@@ -158,7 +190,7 @@ void app_amiibo_on_kill(mini_app_inst_t *p_app_inst) {
 void app_amiibo_on_event(mini_app_inst_t *p_app_inst, mini_app_event_t *p_event) {}
 
 mini_app_t app_amiibo_info = {.id = MINI_APP_ID_AMIIBO,
-                              .name = "Amiibo模拟器",
+                              .name = "Star模拟器",
                               .name_i18n_key = _L_APP_AMIIBO,
                               .icon = 0xe082,
                               .sys = false,

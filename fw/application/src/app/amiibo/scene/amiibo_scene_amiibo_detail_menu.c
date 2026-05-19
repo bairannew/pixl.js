@@ -24,6 +24,10 @@ enum amiibo_detail_menu_t {
     AMIIBO_DETAIL_MENU_SET_CUSTOM_UID,
     AMIIBO_DETAIL_MENU_REMOVE_AMIIBO,
     AMIIBO_DETAIL_MENU_BACK_AMIIBO_DETAIL,
+    /* v8.1: 名字保留 BACK_FILE_BROWSER 是兼容 git history;
+     * 语义已经从"返回文件列表"改成"返回徽章大全 (badge_list)".
+     * 详情菜单 push 路径是 badge_list -> amiibo_detail -> amiibo_detail_menu,
+     * 所以一次性 pop 两层就是 badge_list. 见 _selected 里的 case 分支. */
     AMIIBO_DETAIL_MENU_BACK_FILE_BROWSER,
     AMIIBO_DETAIL_MENU_BACK_MAIN_MENU,
 };
@@ -88,24 +92,27 @@ static void amiibo_scene_amiibo_detail_delete_tag_confirmed(mui_msg_box_event_t 
         int res = p_vfs_driver->remove_file(path);
 
         if (res == VFS_OK) {
-            uint8_t focus = amiibo_detail_view_get_focus(app->p_amiibo_detail_view);
-            bool reload = false;
-            if (focus > 0) {
-                string_set(app->current_file, *string_array_get(app->amiibo_files, focus - 1));
-                reload = true;
-            } else if (string_array_size(app->amiibo_files) > 1) {
-                string_set(app->current_file, *string_array_get(app->amiibo_files, focus + 1));
-                reload = true;
-            } else {
-                string_set_str(app->current_file, "");
-            }
-
-            if (reload) {
-                app->reload_amiibo_files = true;
-                mui_scene_dispatcher_previous_scene(app->p_scene_dispatcher);
-            } else {
-                mui_scene_dispatcher_next_scene(app->p_scene_dispatcher, AMIIBO_SCENE_FILE_BROWSER);
-            }
+            /* v8.2-fix5: 删完直接回徽章大全 (badge_list), 不要再切到
+             * 同目录下另一张徽章. 之前的"删完跳上一张/下一张"是 amiibo
+             * legacy 行为, 在光遇徽章场景里很不直观 —— 用户长按进操作
+             * 页删了某张, 期望是回到列表挑下一个动作, 而不是被甩到一张
+             * 完全不相干的徽章 detail 上.
+             *
+             * 栈状态 (msg_box 是 amiibo_detail_menu 内的另一个 view,
+             * 不算独立 scene):
+             *   badge_list -> amiibo_detail -> amiibo_detail_menu
+             * back_scene(2) 一次性 pop 掉 amiibo_detail_menu + amiibo_detail,
+             * 回到 badge_list. badge_list 的 on_enter 会重扫目录, 删掉的
+             * 条目自然消失.
+             *
+             * 顺便清掉 current_file —— 列表 reload 时不需要用它选焦点,
+             * 留着空字符串是防 amiibo_detail 万一被复用时拿到悬挂名. */
+            string_set_str(app->current_file, "");
+            app->reload_amiibo_files = true;
+            mui_scene_dispatcher_back_scene(app->p_scene_dispatcher, 2);
+        } else {
+            /* 删除失败 — 退回上层 detail (跟取消同) */
+            mui_scene_dispatcher_previous_scene(app->p_scene_dispatcher);
         }
     } else {
         mui_scene_dispatcher_previous_scene(app->p_scene_dispatcher);
@@ -147,7 +154,8 @@ static void amiibo_scene_amiibo_detail_menu_text_input_set_id_event_cb(mui_text_
         }
 
         // set ntag emu to emulate new tag
-        ntag_emu_set_tag(&app->ntag);
+        /* v8.1-fix2: 走带 AAR 的仿真入口, 让仿真出去的标签也能直接拉起对应渠道. */
+        amiibo_scene_amiibo_detail_emit_tag(app, &app->ntag);
 
         // save to file
         vfs_driver_t *p_driver = vfs_get_driver(app->current_drive);
@@ -175,7 +183,12 @@ static void amiibo_scene_amiibo_detail_menu_on_selected(mui_list_view_event_t ev
 
     switch (selection) {
     case AMIIBO_DETAIL_MENU_BACK_FILE_BROWSER:
-        mui_scene_dispatcher_next_scene(app->p_scene_dispatcher, AMIIBO_SCENE_FILE_BROWSER);
+        /* v8.1: "返回徽章大全". 路径栈是 badge_list -> amiibo_detail ->
+         * amiibo_detail_menu, 一层 previous_scene() 只回到 amiibo_detail
+         * (跟"返回标签详情"完全等价, 这就是用户报告的 "两个返回都跑到详情" 的 bug).
+         * 一次性 pop 两层, 直接回到 badge_list. badge_list 的 on_enter 会
+         * 主动 reload, 所以最新写入 / 改名结果都能在那一刻被刷出来. */
+        mui_scene_dispatcher_back_scene(app->p_scene_dispatcher, 2);
         break;
     case AMIIBO_DETAIL_MENU_RAND_UID: {
         ret_code_t err_code;
@@ -197,7 +210,8 @@ static void amiibo_scene_amiibo_detail_menu_on_selected(mui_list_view_event_t ev
         err_code = amiibo_helper_rand_amiibo_uuid(ntag_current);
         APP_ERROR_CHECK(err_code);
         if (err_code == NRF_SUCCESS) {
-            ntag_emu_set_tag(&app->ntag);
+            /* v8.1-fix2: 走带 AAR 的仿真入口. */
+            amiibo_scene_amiibo_detail_emit_tag(app, &app->ntag);
             mui_scene_dispatcher_previous_scene(app->p_scene_dispatcher);
         }
 
@@ -247,7 +261,8 @@ static void amiibo_scene_amiibo_detail_menu_on_selected(mui_list_view_event_t ev
         ret_code_t err_code = amiibo_scene_amiibo_detail_set_readonly(app, !app->ntag.read_only);
         if (err_code == NRF_SUCCESS) {
             app->ntag.read_only = !app->ntag.read_only;
-            ntag_emu_set_tag(&app->ntag);
+            /* v8.1-fix2: 走带 AAR 的仿真入口. */
+            amiibo_scene_amiibo_detail_emit_tag(app, &app->ntag);
             mui_list_view_item_set_sub_text(p_item,
                                             app->ntag.read_only ? getLangString(_L_ON_F) : getLangString(_L_OFF_F));
         }
@@ -293,7 +308,9 @@ void amiibo_scene_amiibo_detail_menu_on_enter(void *user_data) {
                            (void *)AMIIBO_DETAIL_MENU_REMOVE_AMIIBO);
     mui_list_view_add_item(app->p_list_view, 0xe068, getLangString(_L_BACK_TO_DETAILS),
                            (void *)AMIIBO_DETAIL_MENU_BACK_AMIIBO_DETAIL);
-    mui_list_view_add_item(app->p_list_view, 0xe069, getLangString(_L_BACK_TO_FILE_LIST),
+    /* v8.1: 这一项的目的地从"文件列表 (legacy file_browser)"改成"徽章大全 (badge_list)".
+     * legacy file_browser_menu 那一份仍然用 _L_BACK_TO_FILE_LIST, 不动. */
+    mui_list_view_add_item(app->p_list_view, 0xe069, getLangString(_L_STAR_BACK_TO_BADGE_LIST),
                            (void *)AMIIBO_DETAIL_MENU_BACK_FILE_BROWSER);
     mui_list_view_add_item(app->p_list_view, 0xe1c8, getLangString(_L_BACK_TO_MAIN_MENU),
                            (void *)AMIIBO_DETAIL_MENU_BACK_MAIN_MENU);

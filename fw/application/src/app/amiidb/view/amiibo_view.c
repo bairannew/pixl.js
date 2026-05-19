@@ -83,10 +83,10 @@ static void amiibo_view_on_draw(mui_view_t *p_view, mui_canvas_t *p_canvas) {
             const char *notes;
             if (getLanguage() == LANGUAGE_ZH_HANS) {
                 notes = link->note_cn;
-            } else if (getLanguage() == LANGUAGE_IT_IT) {
-                notes = link->note_it;
             } else {
-                notes = link->note_en;
+                /* v8.1-fix2: 旧版有 LANGUAGE_IT_IT 分支用 link->note_it,
+                 * 现在语言只剩中简/中繁两种, 中繁也走中文备注. */
+                notes = link->note_cn;
             }
             p_amiibo_view->desc_total =
                 mui_element_autowrap_text_box(p_canvas, clip_win_cur.x, clip_win_cur.y, clip_win_cur.w, clip_win_cur.h,

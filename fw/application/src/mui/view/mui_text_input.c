@@ -1,6 +1,38 @@
 #include "mui_text_input.h"
 
+#include <string.h>
+
 #define LIST_ITEM_HEIGHT 13
+
+/* ---- UTF-8 aware backspace helper ---- */
+/* Returns the number of bytes to remove for one UTF-8 character at the end.
+ * If the string is empty or invalid, returns 0 (no-op). */
+static size_t utf8_last_char_bytes(const char *str, size_t len) {
+    if (str == NULL || len == 0) return 0;
+    /* Walk backwards to find the start of the last UTF-8 sequence */
+    size_t pos = len;
+    while (pos > 0) {
+        pos--;
+        unsigned char c = (unsigned char)str[pos];
+        if ((c & 0x80) == 0x00) {
+            /* ASCII byte — single byte character */
+            return len - pos;
+        }
+        if ((c & 0xC0) == 0xC0) {
+            /* Leading byte of a multi-byte sequence */
+            return len - pos;
+        }
+        /* Continuation byte (10xxxxxx) — keep walking */
+        if (len - pos >= 4) {
+            /* Safety: UTF-8 is at most 4 bytes; if we haven't found
+             * a leading byte in 4 continuation bytes, data is corrupt.
+             * Remove 1 byte to make progress. */
+            return 1;
+        }
+    }
+    /* Reached start without finding a lead byte — remove 1 byte */
+    return len > 0 ? 1 : 0;
+}
 
 typedef struct {
     const char text;
@@ -220,10 +252,18 @@ static void mui_text_input_on_input(mui_view_t *p_view, mui_input_event_t *event
         case INPUT_KEY_CENTER: {
             char c = get_row(p_mui_text_input->focus_row)[p_mui_text_input->focus_column].text;
             if (c == BACKSPACE_KEY) {
-                string_t current;
-                string_init_set(current, p_mui_text_input->input_text);
-                string_set_strn(p_mui_text_input->input_text, string_get_cstr(current), string_size(current) - 1);
-                string_clear(current);
+                size_t cur_len = string_size(p_mui_text_input->input_text);
+                if (cur_len > 0) {
+                    const char *s = string_get_cstr(p_mui_text_input->input_text);
+                    size_t rm = utf8_last_char_bytes(s, cur_len);
+                    if (rm > 0 && rm <= cur_len) {
+                        string_t current;
+                        string_init_set(current, p_mui_text_input->input_text);
+                        string_set_strn(p_mui_text_input->input_text,
+                                        string_get_cstr(current), cur_len - rm);
+                        string_clear(current);
+                    }
+                }
             } else if (c == ENTER_KEY) {
                 if (p_mui_text_input->event_cb) {
                     p_mui_text_input->event_cb(MUI_TEXT_INPUT_EVENT_CONFIRMED, p_mui_text_input);

@@ -13,7 +13,8 @@ typedef enum {
     MINI_APP_ID_BLE = 6,
     MINI_APP_ID_SETTINGS = 7,
     MINI_APP_ID_CHAMELEON = 8,
-    MINI_APP_ID_GAME = 9
+    MINI_APP_ID_GAME = 9,
+    MINI_APP_ID_ACTIVATION = 10
 
 } mini_app_id_t;
 

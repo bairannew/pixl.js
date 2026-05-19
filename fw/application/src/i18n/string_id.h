@@ -194,6 +194,80 @@ typedef enum {
     _L_APP_GAME_TINY_INVADERS,
     _L_APP_GAME_TINY_LANDER,
     _L_APP_GAME_TINY_TRIS,
+
+    /* === v4: Star 模拟器 (光遇徽章 3 级导航) === */
+    /* 12 个渠道显示名 (v8.2-fix6: +快手, 在荣耀下面) */
+    _L_STAR_CH_NETEASE,
+    _L_STAR_CH_9GAME,
+    _L_STAR_CH_VIVO,
+    _L_STAR_CH_HUAWEI,
+    _L_STAR_CH_4399,
+    _L_STAR_CH_YYB,
+    _L_STAR_CH_HONOR,
+    _L_STAR_CH_KUAISHOU,
+    _L_STAR_CH_BILIBILI,
+    _L_STAR_CH_GLOBAL,
+    _L_STAR_CH_HUAWEI_GLOBAL,
+    _L_STAR_CH_TEST,
+    /* 标题与提示 */
+    _L_STAR_TITLE_CHANNEL,        /* "选择渠道" */
+    _L_STAR_TITLE_ACCOUNT,        /* "选择账号" */
+    _L_STAR_TITLE_BADGE,          /* "选择徽章" */
+    _L_STAR_DEFAULT_ACCOUNT,      /* "默认账号" */
+    _L_STAR_NEW_ACCOUNT,          /* "新建账号" */
+    _L_STAR_NEW_BADGE,            /* "新建徽章" */
+    _L_STAR_INPUT_ACCOUNT_NAME,   /* "输入账号名:" */
+    _L_STAR_INPUT_BADGE_NAME,     /* "输入徽章名:" */
+    _L_STAR_PROMPT_SCAN,          /* "请感应徽章 (从 inbox 选择.bin)" */
+    _L_STAR_INBOX_EMPTY,          /* "inbox 没有.bin文件\n用蓝牙上传到 /star/_inbox/" */
+    _L_STAR_DEFAULT_NOT_EDITABLE, /* "默认账号不可重命名" */
+    _L_STAR_ACCOUNT_EXISTS,       /* "账号已存在" */
+    _L_STAR_ACCOUNT_NAME_INVALID, /* "账号名无效" */
+    _L_STAR_BADGE_SAVED,          /* "徽章已添加" */
+    _L_STAR_BADGE_SAVE_FAILED,    /* "添加徽章失败" */
+    _L_STAR_AUTOFILL_HIT,         /* "已识别: " (后接名称) */
+    _L_STAR_AUTOFILL_MISS,        /* "未识别, 请手动命名" */
+    _L_STAR_CONFIRM_DELETE,       /* "确认删除?" */
+    _L_STAR_ACCOUNT_DELETE_NON_EMPTY, /* "账号不为空, 无法删除" */
+    /* v8 新增: BADGE_WAIT_UPLOAD 场景 msg_box 内容 */
+    _L_STAR_WAIT_UPLOAD_MSG,      /* "等待蓝牙上传...\n上传完成将自动识别" */
+    /* v8.1: 标签详情菜单里"返回上一层"的标签 — 跟 legacy 文件浏览器的
+     * "返回文件列表" (_L_BACK_TO_FILE_LIST) 区分开. 详情菜单是从徽章列表
+     * (badge_list) push 进来的, 这一项一次性 pop 两层回 badge_list. */
+    _L_STAR_BACK_TO_BADGE_LIST,   /* "返回徽章大全" */
+    /* v8.1: 账号删除确认 msg_box 正文模板, %s = 账号目录名 */
+    _L_STAR_ACCOUNT_DELETE_CONFIRM, /* "确认删除账号 %s ?\n(账号下的徽章会一起删除)" */
+
+    /* === v8.2: 4 级导航 (Channel / Account / Category / Badge) + 重命名 === */
+    /* 分类层相关 */
+    _L_STAR_TITLE_CATEGORY,          /* "选择分类" */
+    _L_STAR_DEFAULT_CATEGORY,        /* "默认分类" */
+    _L_STAR_NEW_CATEGORY,            /* "新建分类" */
+    _L_STAR_INPUT_CATEGORY_NAME,     /* "输入分类名:" */
+    _L_STAR_INPUT_NEW_CATEGORY_NAME, /* "输入新分类名:" */
+    _L_STAR_CATEGORY_EXISTS,         /* "分类已存在" */
+    _L_STAR_CATEGORY_NAME_INVALID,   /* "分类名无效" */
+    _L_STAR_CATEGORY_DELETE_CONFIRM, /* "确认删除分类 %s ?\n(分类下徽章会一起删除)" */
+    _L_STAR_CATEGORY_DEFAULT_NOT_EDITABLE, /* "默认分类不可改名/删除" */
+    /* 账号重命名 */
+    _L_STAR_INPUT_NEW_ACCOUNT_NAME,  /* "输入新账号名:" */
+    /* 长按操作菜单 */
+    _L_STAR_ACTION_RENAME,           /* "重命名" */
+    _L_STAR_ACTION_DELETE,           /* "删除" */
+    _L_STAR_ACCOUNT_ACTION_TITLE,    /* "账号操作" */
+    _L_STAR_CATEGORY_ACTION_TITLE,   /* "分类操作" */
+
+    /* === v8.2-fix5: 徽章长按 = action_menu (重命名 / 删除 / 取消) === */
+    _L_STAR_BADGE_ACTION_TITLE,      /* "徽章操作" */
+    _L_STAR_BADGE_DELETE_CONFIRM,    /* "确认删除徽章 %s ?" */
+
+    /* === v9.0-fix2: 重命名成功 toast === */
+    /* 老代码在账号 / 分类重命名成功后复用 _L_STAR_BADGE_SAVED = "徽章已添加",
+     * 用户看到"徽章已添加"以为没改成功 — 跟报障"什么也不提示"一致.
+     * 这里拆开成三种 toast, 给用户准确的反馈. */
+    _L_STAR_ACCOUNT_RENAMED,         /* "账号已重命名" */
+    _L_STAR_CATEGORY_RENAMED,        /* "分类已重命名" */
+
     _L_COUNT,
 } L_StringID;
 #endif

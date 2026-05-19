@@ -110,8 +110,12 @@ static void settings_scene_main_list_view_on_selected(mui_list_view_event_t even
         settings_scene_main_reload(app);
         break;
 
+    /* v8.1-fix2: SETTINGS_MAIN_MENU_ANIM_ENABLED 整项已从菜单移除.
+     * 动画现在永远开, 用户没法关, 也不进列表 —— 这里的 case 留作"防御",
+     * 万一某条野指针/旧 enum 值落到这里, 也走 reload 不崩溃. */
     case SETTINGS_MAIN_MENU_ANIM_ENABLED:
-        p_settings->anim_enabled = !p_settings->anim_enabled;
+        /* 不再 toggle, 保持 true */
+        p_settings->anim_enabled = true;
         settings_scene_main_reload(app);
         break;
 
@@ -187,9 +191,7 @@ static void settings_scene_main_reload(void *user_data) {
                                (void *)SETTINGS_MAIN_MENU_BACK_LIGHT);
 #endif
 
-    mui_list_view_add_item_ext(app->p_list_view, 0xe1dc, _T(APP_SET_ANIM),
-                               p_settings->anim_enabled ? _T(ON_F) : _T(OFF_F),
-                               (void *)SETTINGS_MAIN_MENU_ANIM_ENABLED);
+    /* v8.1-fix2: 删除 "动画效果" 菜单项. 动画强制开启, 不展示给用户. */
 
     mui_list_view_add_item_ext(app->p_list_view, 0xe08f, _T(APP_SET_LIPO_BAT),
                                p_settings->bat_mode ? _T(ON_F) : _T(OFF_F), (void *)SETTINGS_MAIN_MENU_LI_MODE);

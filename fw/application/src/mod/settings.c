@@ -23,12 +23,15 @@ const settings_data_t def_settings_data = {.backlight = 0,
                                            .skip_driver_select = 0,
                                            .bat_mode = DEFAULT_BAT_MODE,
                                            .amiibo_link_ver = BLE_AMIIBOLINK_VER_V1,
-                                           .language = LANGUAGE_EN_US,
+                                           .language = LANGUAGE_ZH_HANS, // [光遇定制] 默认简体中文
                                            .hibernate_enabled = false,
                                            .show_mem_usage = false,
                                            .lcd_backlight = 0,
                                            .oled_contrast = 80,
-                                           .anim_enabled = false,
+                                           /* v8.1-fix2: 系统动画强制默认开启 (用户要求).
+                                            * 设置菜单里"动画效果"那一项也一并删掉. validate_settings()
+                                            * 会把已经存盘的 anim_enabled=0 也强制改回 1, 兼容老用户. */
+                                           .anim_enabled = true,
                                            .amiidb_data_slot_num = 20,
                                            .qrcode_enabled = true,
                                            .chameleon_default_slot_index = INVALID_SLOT_INDEX,
@@ -69,9 +72,24 @@ static void validate_settings() {
     BOOL_VALIDATE(m_settings_data.backlight, 0);
     INT8_VALIDATE(m_settings_data.lcd_backlight, 0, 100, 0);
     INT8_VALIDATE(m_settings_data.oled_contrast, 0, 100, 80);
-    BOOL_VALIDATE(m_settings_data.anim_enabled, 0);
+    /* v8.1-fix2: 不再让 anim_enabled 接受 0. 设置里没法关, 老存盘里若有
+     * anim_enabled=0 (上一版本默认值就是 0), 在这里强制改回 1. */
+    m_settings_data.anim_enabled = true;
     BOOL_VALIDATE(m_settings_data.qrcode_enabled, 0);
-    INT8_VALIDATE(m_settings_data.language, 0, LANGUAGE_COUNT - 1, LANGUAGE_EN_US);
+    /* v8.1-fix2: 老 settings.bin 里 language 可能存了 0..14 (15 个旧枚举值),
+     * 新枚举只有 0 (ZH_HANS) 和 1 (ZH_TW).
+     *   旧值 0 (ZH_HANS) → 仍是简体, 留作 0 ✓
+     *   旧值 2 (ZH_TW)   → 旧 ZH_TW, 现在被新 enum 占用为别的语言, 改成 1 (新 ZH_TW)
+     *   其它 1..14       → 一律回简体
+     */
+    if (m_settings_data.language == 2) {
+        /* 旧 LANGUAGE_ZH_TW 枚举值是 2, 新枚举值改成了 1, 这里平移. */
+        m_settings_data.language = LANGUAGE_ZH_TW;
+    } else if (m_settings_data.language >= LANGUAGE_COUNT) {
+        /* 其它所有"过去存在过, 现在删掉了"的语言值, 一律回简体. */
+        m_settings_data.language = LANGUAGE_ZH_HANS;
+    }
+    INT8_VALIDATE(m_settings_data.language, 0, LANGUAGE_COUNT - 1, LANGUAGE_ZH_HANS);
     INT8_VALIDATE(m_settings_data.amiidb_data_slot_num, 1, 100, 20);
     INT8_VALIDATE(m_settings_data.chameleon_slot_num, 8, 50, 8);
     INT8_VALIDATE(m_settings_data.chameleon_default_slot_index, 0, m_settings_data.chameleon_slot_num, INVALID_SLOT_INDEX);

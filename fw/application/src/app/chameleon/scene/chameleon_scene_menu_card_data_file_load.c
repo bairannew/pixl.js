@@ -16,6 +16,11 @@
 
 #include "fds_utils.h"
 
+#include "sky_badge_parser.h"
+#include "vfs_meta.h"
+#include <stdio.h>
+#include <string.h>
+
 typedef enum {
     CHAMELEON_MENU_BACK,
     CHAMELEON_MENU_FILE,
@@ -82,8 +87,50 @@ static void chameleon_scene_menu_card_data_file_load_from_file(app_chameleon_t *
     // update tag coll res
     tag_helper_load_coll_res_from_block0();
 
-    // set nickname by filename
-    err = tag_helper_set_nickname(file_name);
+    /* =========================================================
+     * 光遇徽章自动识别 (Sky Badge Edition)
+     *
+     * 流程 (与 Star Android 项目 BadgeIdentifier 一致):
+     *   NTAG memory  →  NDEF URI  →  ?s=BASE64  →  base64 decode  →  sk=…
+     *   →  sky_badge_db_find(sk)  →  entry->name_zh + entry->note_zh
+     *
+     * 命中:   name 用 "name_zh - note_zh" 拼接 (能装下时), 否则只用 name_zh.
+     * 未命中: 退回原行为, 用文件名当 nickname (例如 manual dump 文件).
+     *
+     * vfs_meta.notes 容量 = VFS_META_MAX_NOTES_SIZE (90 字节), UTF-8.
+     * 用户随后可进 "设置徽章名" 二次编辑覆盖.
+     * ========================================================= */
+    {
+        const sky_badge_entry_t *sb_entry =
+            sky_badge_try_autofill(tag_buffer, tag_data_size);
+
+        char nick[VFS_META_MAX_NOTES_SIZE];
+        if (sb_entry != NULL) {
+            /* 拼 "中文名 (备注)", 超长则只留名. */
+            size_t name_len = strlen(sb_entry->name_zh);
+            size_t note_len = strlen(sb_entry->note_zh);
+            if (name_len + note_len + 4 < sizeof(nick) && note_len > 0) {
+                snprintf(nick, sizeof(nick), "%s (%s)",
+                         sb_entry->name_zh, sb_entry->note_zh);
+            } else if (name_len + 1 <= sizeof(nick)) {
+                strncpy(nick, sb_entry->name_zh, sizeof(nick) - 1);
+                nick[sizeof(nick) - 1] = '\0';
+            } else {
+                /* 极端情况, 名字本身就超长, 截断到容量 */
+                strncpy(nick, sb_entry->name_zh, sizeof(nick) - 1);
+                nick[sizeof(nick) - 1] = '\0';
+            }
+            NRF_LOG_INFO("sky badge matched: sk=%s idx=%d",
+                         (uint32_t)sb_entry->sk, sb_entry->idx);
+        } else {
+            /* 未命中徽章库: 用文件名作昵称, 保持原行为. */
+            strncpy(nick, file_name, sizeof(nick) - 1);
+            nick[sizeof(nick) - 1] = '\0';
+            NRF_LOG_INFO("sky badge: no match, fallback to filename");
+        }
+
+        err = tag_helper_set_nickname(nick);
+    }
     if (err != 0) {
         mui_toast_view_show(app->p_toast_view, _T(APP_CHAMELEON_CARD_SET_NICK_FAILED));
         return;

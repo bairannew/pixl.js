@@ -31,6 +31,25 @@ static void mui_list_view_start_text_anim(mui_list_view_t *p_view) {
 }
 
 static void mui_list_view_start_gap_anim(mui_list_view_t *p_view) {
+    /* v8.2-fix8 关键修复:
+     *
+     * 重新进入同一个 list_view (例: 用户从 detail/detail_menu 返回 badge_list)
+     * 时, mui_view_enter 会把 first_draw 置 0, on_draw 末尾就会走到这里
+     * 第二次启动 gap_anim. 而 mui_anim_start() 第一件事就是
+     *   exec_cb(var, start_value=0)
+     * 把 item_gap 立刻拍回 0 —— 紧接着的那一帧 redraw 里所有 item 都画
+     * 在 actual_y = index * 0 - offset_y = 0, 全部重叠. 直到动画跑完
+     * 200ms 才回到 LIST_ITEM_HEIGHT.
+     *
+     * 这正是用户报告的 "返回徽章大全 列表都没了, 只能再点进去左右滑动
+     * 才显示" 现象 —— 滑动会触发新的 scroll/focus 动画 + 一连串 redraw,
+     * 时间上正好走完 gap_anim, 看上去就是 "滑一下才出来".
+     *
+     * 修法: 如果 item_gap 已经处于完全展开状态 (LIST_ITEM_HEIGHT), 不重启
+     * 开屏动画. 开屏动画只在 list_view 第一次有内容显示时跑一次. */
+    if (p_view->item_gap >= LIST_ITEM_HEIGHT) {
+        return;
+    }
     if (mui_list_view_anim_enabled()) {
         mui_anim_start(&p_view->gap_anim);
     } else {

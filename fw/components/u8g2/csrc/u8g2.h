@@ -190,11 +190,19 @@
 
 /* the macro U8G2_USE_LARGE_FONTS enables large fonts (>32K) */
 /* it can be enabled for those uC supporting larger arrays */
+/* [fix4] u8g2 upstream 默认在 __arm__ 上自动定义 U8G2_USE_LARGE_FONTS,
+ * 这会让我们的 wqy12 GB2312 字库选择器选中 198KB 完整版 (见
+ * src/mui/u8g2_font_wqy12_t_gb2312a*.c 顶部的 #ifdef 选择), 撑爆 nRF52832
+ * 的 364KB 应用 FLASH (溢出 64KB). 整块注释掉这里的自动启用, 改由
+ * application/Makefile 显式控制. 如需启用完整字库, 在 Makefile 释放
+ * release 分支里的 `CFLAGS += -DU8G2_USE_LARGE_FONTS` 即可. */
+#if 0
 #if defined(unix) || defined(__unix__) || defined(__arm__) || defined(__arc__) || defined(ESP8266) || defined(ESP_PLATFORM) || defined(__LUATOS__)
 #ifndef U8G2_USE_LARGE_FONTS
 #define U8G2_USE_LARGE_FONTS
 #endif 
 #endif
+#endif /* [fix4] */
 
 /*==========================================*/
 /* C++ compatible */

@@ -97,6 +97,7 @@
 #include "cache.h"
 #include "i18n/language.h"
 #include "settings.h"
+#include "activation.h"
 
 #define APP_SCHED_MAX_EVENT_SIZE 4 /**< Maximum size of scheduler events. */
 #define APP_SCHED_QUEUE_SIZE 16    /**< Maximum number of events in the scheduler queue. */
@@ -275,6 +276,15 @@ int main(void) {
     // we ignore error here, cause flash may not be presented or settings.bin did not exist
     NRF_LOG_INFO("settings init: %d", err_code);
     // APP_ERROR_CHECK(err_code);
+
+    /* Activation gate must come after settings_init() (which mounts
+     * the VFS) — activation_init() reads /activation.bin to see if
+     * the user has already entered the activation code on this
+     * device. If not, the launcher will route the first run to the
+     * activation app instead of the desktop. */
+    int32_t act_err = activation_init();
+    NRF_LOG_INFO("activation init: %d, activated=%d",
+                 act_err, (int)activation_is_activated());
 
     uint32_t wakeup_reason = check_wakeup_src();
 

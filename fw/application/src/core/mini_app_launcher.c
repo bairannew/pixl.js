@@ -6,6 +6,7 @@
 #include "settings.h"
 #include "nrf_power.h"
 #include "tag_helper.h"
+#include "activation.h"
 
 mini_app_launcher_t *mini_app_launcher() {
     static mini_app_launcher_t launcher;
@@ -37,6 +38,19 @@ static void mini_app_launcher_inst_run(mini_app_launcher_t *p_launcher, uint32_t
 }
 
 void mini_app_launcher_run_with_retain_data(mini_app_launcher_t *p_launcher, uint32_t id, uint8_t *retain_data) {
+    /* Activation gate: until the device has been activated, redirect
+     * every app launch (except the status bar daemon and activation
+     * itself) to the activation app. This catches both first boot
+     * (launcher_init asks for desktop) and the case where the user
+     * kills/exits the activation app (launcher would otherwise fall
+     * back to the desktop). */
+    if (!activation_is_activated() &&
+        id != MINI_APP_ID_ACTIVATION &&
+        id != MINI_APP_ID_STATUS_BAR) {
+        id = MINI_APP_ID_ACTIVATION;
+        retain_data = NULL;
+    }
+
     mini_app_t *p_app = mini_app_registry_find_by_id(id);
     if (p_app == NULL) {
         return;

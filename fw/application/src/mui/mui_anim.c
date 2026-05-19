@@ -137,6 +137,7 @@ static void mui_anim_tick_handler() {
 
     while (!mui_anim_ptr_array_end_p(it)) {
         mui_anim_t *p_anim = *mui_anim_ptr_array_ref(it);
+        bool removed = false;   /* v8.2-fix8: 跟踪本次循环里是否做过 remove */
 
         p_anim->act_time += MUI_ANIM_TICK_INTERVAL_MS;
         if (p_anim->act_time > p_anim->time) {
@@ -163,6 +164,7 @@ static void mui_anim_tick_handler() {
                     }
 
                     mui_anim_ptr_array_remove(m_anim_ptr_array, it);
+                    removed = true;
                 }
             }
         } else {
@@ -173,7 +175,24 @@ static void mui_anim_tick_handler() {
                 mui_update_required = true;
             }
         }
-        mui_anim_ptr_array_next(it);
+
+        /* v8.2-fix8 关键修复: M-LIB 的 _remove(it) 内部已经把 it 推到了被
+         * 移除元素之后的那一个 (跟 STL erase 同义). 旧代码无条件再调一次
+         * _next(it), 等于跳过紧邻 remove 后面的那个 anim, 导致它这一轮
+         * tick 永远不被处理. 实际症状:
+         *
+         *   list_view 的 gap_anim 紧跟在某个一次性 text_anim 之后 ——
+         *   text_anim 结束被 remove 时, gap_anim 被 next() 跳过, 该轮
+         *   item_gap 不更新; 多个 mui_update 排队又触发更多 redraw,
+         *   gap_anim 看起来"卡住", 直到下一个 20ms tick 才动一格.
+         *   极端情况下 (event_queue 因为上面那个优先级 bug 排满) 这条
+         *   anim 几秒都跑不完, 列表就一直处于折叠 (item_gap=0, items
+         *   重叠在 y=0) 的状态 —— 用户看到的就是"返回徽章大全后列表空了".
+         *
+         * 修复: 只有没 remove 时才 next(); remove 已经天然推进了迭代器. */
+        if (!removed) {
+            mui_anim_ptr_array_next(it);
+        }
     }
 
     // stop timer
@@ -198,15 +217,25 @@ static mui_anim_t* mui_anim_remove_ptr(mui_anim_t* p_anim){
         mui_anim_t *p_cur_anim = *mui_anim_ptr_array_ref(it);
 
         if(p_anim == p_cur_anim){
-            mui_anim_ptr_array_remove(m_anim_ptr_array, it)
-                ;
+            mui_anim_ptr_array_remove(m_anim_ptr_array, it);
             return p_cur_anim;
         }
         mui_anim_ptr_array_next(it);
     }
+    /* v8.2-fix8: 没命中也得有显式 return, 否则函数声明的返回值是
+     * mui_anim_t* 但实际返回的是 r0 里上一次调用残留的值 (gcc -Os
+     * 下落出函数体的行为是 UB). 调用方目前都丢掉返回值, 所以不会
+     * 显式炸, 但这是个潜伏的 UB, 不要留. */
+    return NULL;
 }
 
 void mui_anim_core_init() {
+    /* v8.2-fix8: 显式 init 全局 anim 指针数组. 它是 global, BSS 段
+     * 会被 zero-initialized, 而 M-LIB 的 ARRAY 容器对全零 buffer 在
+     * 大多数操作上能容忍但并不保证 —— 这里花一行调一次 init, 避免
+     * 在未来 M-LIB 升级 / 实现细节变化时炸. */
+    mui_anim_ptr_array_init(m_anim_ptr_array);
+
     int32_t err_code = app_timer_create(&m_anim_tick_tmr, APP_TIMER_MODE_REPEATED, mui_anim_tick_tmr_cb);
     APP_ERROR_CHECK(err_code);
 }

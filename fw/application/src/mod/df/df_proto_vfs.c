@@ -4,6 +4,9 @@
 #include "df_defines.h"
 #include "nrf_log.h"
 #include "vfs.h"
+#include "star_upload_hook.h"   /* v8: BLE 上传完成回调钩子 */
+
+#include <string.h>
 
 static vfs_driver_t *get_driver_by_path(char *path) {
     if (path[0] == 'I') {
@@ -123,7 +126,20 @@ typedef struct {
     bool dir_closed;
     uint16_t chunk;
     vfs_driver_t *driver;
+    /* v9.0-fix2: 新增 "句柄是否仍在 LFS 那里活着" 显式标志.
+     *
+     * 历史问题: 旧版只有 dir_closed (默认 false, 表示"还没读完"),
+     * 但它在 BSS 静态零初始化时也是 false — 也就是说 "从未 open 过"
+     * 也是 false, 不能用 !dir_closed 判 "是否需要 close".
+     *
+     * opened 由 open_dir 成功后置 true, close_dir (任何路径) 后置 false,
+     * 初始 false. 这样 close_active_dir() 才能安全幂等地判断要不要关. */
+    bool opened;
 } dir_chunk_state_t;
+
+/* v9.0-fix2: 提到文件级, 让 df_proto_vfs_close_active_dir() 也能访问.
+ * 原来定义在 df_proto_handler_vfs_dir_read 函数体内, 跨函数无法清理. */
+static dir_chunk_state_t dir_chunk_state = { .opened = false, .dir_closed = true, .driver = NULL };
 
 static void dir_read_send_chunk(dir_chunk_state_t *chunk_state, df_frame_t *out) {
 
@@ -168,6 +184,9 @@ static void dir_read_send_chunk(dir_chunk_state_t *chunk_state, df_frame_t *out)
         out->chunk = chunk_state->chunk;
         chunk_state->dir_closed = true;
         chunk_state->driver->close_dir(&chunk_state->dir);
+        /* v9.0-fix2: 同步清掉 opened, 让外部 close_active_dir() 不再
+         * 误以为还有活的句柄. 老路径 (本次自然读完) 走到这里. */
+        chunk_state->opened = false;
     } else {
         out->chunk = 0x8000 | chunk_state->chunk;
     }
@@ -180,7 +199,10 @@ static void dir_read_send_chunk(dir_chunk_state_t *chunk_state, df_frame_t *out)
 
 void df_proto_handler_vfs_dir_read(df_event_t *evt) {
 
-    static dir_chunk_state_t chunk_state;
+    /* v9.0-fix2: 不再使用本函数内的 static 变量, 改用文件级 dir_chunk_state.
+     * 这样 df_proto_vfs_close_active_dir() (UI scene 在 rename / migrate 前
+     * 调) 才能跨函数清掉同一个句柄. 别名只是为了 patch 改动最小. */
+    dir_chunk_state_t *p_chunk_state = &dir_chunk_state;
     df_frame_t out;
 
     if (evt->type == DF_EVENT_DATA_RECEVIED) {
@@ -191,14 +213,23 @@ void df_proto_handler_vfs_dir_read(df_event_t *evt) {
         memset(path, 0, sizeof(path));
         buff_get_string(&buff, path, sizeof(path));
 
-        chunk_state.driver = get_driver_by_path(path);
-        if (chunk_state.driver == NULL) {
+        /* v9.0-fix2: 上一次 dir_read 没读完就被打断 (客户端发了新的请求 / 切目录),
+         * 老句柄必须先关掉, 否则会泄漏直到下次自然 close_dir, 期间任何 UI
+         * 端的 rename 都会因 LFS 句柄占用失败. */
+        if (p_chunk_state->opened && p_chunk_state->driver != NULL) {
+            p_chunk_state->driver->close_dir(&p_chunk_state->dir);
+            p_chunk_state->opened = false;
+            p_chunk_state->dir_closed = true;
+        }
+
+        p_chunk_state->driver = get_driver_by_path(path);
+        if (p_chunk_state->driver == NULL) {
             OUT_FRAME_NO_DATA(out, evt->df->cmd, DF_STATUS_ERR);
             df_core_send_frame(&out);
             return;
         }
 
-        int32_t err = chunk_state.driver->open_dir(get_file_path(path), &chunk_state.dir);
+        int32_t err = p_chunk_state->driver->open_dir(get_file_path(path), &p_chunk_state->dir);
         if (err) {
             // TODO mapping error
             OUT_FRAME_NO_DATA(out, evt->df->cmd, DF_STATUS_ERR);
@@ -206,14 +237,25 @@ void df_proto_handler_vfs_dir_read(df_event_t *evt) {
             return;
         }
 
-        chunk_state.chunk = 0;
-        chunk_state.dir_closed = false;
-        chunk_state.obj_consumed = true;
+        p_chunk_state->chunk = 0;
+        p_chunk_state->dir_closed = false;
+        p_chunk_state->obj_consumed = true;
+        /* v9.0-fix2: 句柄进入 "活" 态. close_active_dir() 看到这个就会关. */
+        p_chunk_state->opened = true;
 
-        dir_read_send_chunk(&chunk_state, &out);
+        dir_read_send_chunk(p_chunk_state, &out);
     } else if (evt->type == DF_EVENT_DATA_TRANSMIT_READY) {
-        dir_read_send_chunk(&chunk_state, &out);
+        dir_read_send_chunk(p_chunk_state, &out);
     } else if (evt->type == DF_EVENT_LINK_DISCONNECTED) {
+        /* v9.0-fix2: BLE 断链时把残余的 dir 句柄关干净. 之前是空分支,
+         * 客户端断线后句柄会一直挂着, 直到下次 open_dir 才被换掉 — 在
+         * 那之前任何 rename / migrate 都会卡 LFS. */
+        if (p_chunk_state->opened && p_chunk_state->driver != NULL) {
+            p_chunk_state->driver->close_dir(&p_chunk_state->dir);
+            p_chunk_state->opened = false;
+            p_chunk_state->dir_closed = true;
+            NRF_LOG_INFO("dir_read: link disconnected, force-closed active dir handle");
+        }
     }
 }
 
@@ -291,6 +333,9 @@ typedef struct {
     vfs_driver_t *vfs_driver;
     int32_t err_code;
     uint16_t chunk;
+    /* v8: 记住打开时的完整路径 + 是否是写模式, 用来在 close 后派发 upload hook */
+    char     last_path[VFS_MAX_FULL_PATH_LEN];
+    bool     last_was_write;
 } file_chunk_state_t;
 
 static file_chunk_state_t file_chunk_state = {0};
@@ -304,6 +349,10 @@ void df_proto_handler_vfs_file_open(df_event_t *evt) {
         if (file_chunk_state.opened) {
             file_chunk_state.vfs_driver->close_file(&file_chunk_state.vfs_fd);
             file_chunk_state.opened = false;
+            /* v8: 强制关闭的旧句柄, 不触发 upload hook (BLE 没正常 close, 数据
+             * 完整性存疑). 仅清掉 last_path/last_was_write 防 hook 误触发. */
+            file_chunk_state.last_path[0] = '\0';
+            file_chunk_state.last_was_write = false;
         }
 
         NEW_BUFFER_READ(buff, evt->df->data, evt->df->length);
@@ -329,6 +378,14 @@ void df_proto_handler_vfs_file_open(df_event_t *evt) {
         file_chunk_state.opened = true;
         file_chunk_state.vfs_driver = p_driver;
         file_chunk_state.err_code = VFS_OK;
+
+        /* v8: 记录路径 + 是否带写权限, 用于 close 后通知 upload hook.
+         * 注意 path[] 已经在前面 memset+memcpy, 是完整 "X:/..." 形态. */
+        strncpy(file_chunk_state.last_path, path, sizeof(file_chunk_state.last_path) - 1);
+        file_chunk_state.last_path[sizeof(file_chunk_state.last_path) - 1] = '\0';
+        file_chunk_state.last_was_write =
+            (flags & (VFS_MODE_TRUNC | VFS_MODE_CREATE |
+                      VFS_MODE_APPEND | VFS_MODE_WRITEONLY)) != 0;
 
         NEW_BUFFER_ZERO(out_buff, out.data, sizeof(out.data));
         buff_put_u8(&out_buff, 0); // always 0
@@ -362,8 +419,27 @@ void df_proto_handler_vfs_file_close(df_event_t *evt) {
             return;
         }
 
+        /* v8 关键: 上传成功. 把 BLE 应答先发出去, 再同步派发 upload hook.
+         * 顺序很重要 — 否则 hook 里 ~ms 级的 vfs 操作会拖死 BLE 应答, 让前端
+         * 误以为关闭超时. */
+        file_chunk_state.opened = false;
         OUT_FRAME_NO_DATA(out, evt->df->cmd, DF_STATUS_OK);
         df_core_send_frame(&out);
+
+        /* close 成功 && 这次打开带写权限 => 这是一次 "上传写入完成" */
+        if (file_chunk_state.last_was_write &&
+            file_chunk_state.last_path[0] != '\0') {
+            char path_copy[VFS_MAX_FULL_PATH_LEN];
+            strncpy(path_copy, file_chunk_state.last_path, sizeof(path_copy) - 1);
+            path_copy[sizeof(path_copy) - 1] = '\0';
+            /* 清掉状态, 防止 hook 里再次调用 close 走回环 */
+            file_chunk_state.last_path[0] = '\0';
+            file_chunk_state.last_was_write = false;
+            star_upload_hook_notify_close(path_copy, true);
+        } else {
+            file_chunk_state.last_path[0] = '\0';
+            file_chunk_state.last_was_write = false;
+        }
     } else if (evt->type == DF_EVENT_DATA_TRANSMIT_READY) {
     }
 }
@@ -386,6 +462,12 @@ void df_proto_handler_vfs_file_write(df_event_t *evt) {
                 file_chunk_state.vfs_driver->write_file(&file_chunk_state.vfs_fd, data_buff, data_size);
             if (bytes_written < 0) {
                 file_chunk_state.err_code = bytes_written;
+            } else if ((size_t)bytes_written != data_size) {
+                /* v7 fix: 短写入也必须报错, 否则前端会把不完整的 .bin 当作上传成功,
+                 * 之后 "添加徽章" 会拿到一个内容不全的源文件而稳定失败. */
+                NRF_LOG_ERROR("vfs file write short write: want=%u got=%d",
+                              (unsigned)data_size, bytes_written);
+                file_chunk_state.err_code = VFS_ERR_FAIL;
             }
         }
 
@@ -451,14 +533,14 @@ void df_proto_handler_vfs_rename(df_event_t *evt) {
         buff_get_string(&buff, new_path, VFS_MAX_FULL_PATH_LEN);
 
         if (!validate_path(old_path) || !validate_path(new_path)) {
-            NRF_LOG_INFO("path error");
+            NRF_LOG_INFO("rename: path error old=%s new=%s", old_path, new_path);
             OUT_FRAME_NO_DATA(out, DF_PROTO_CMD_VFS_RENAME, DF_STATUS_ERR);
             df_core_send_frame(&out);
             return;
         }
 
         if (get_driver_by_path(old_path) != get_driver_by_path(new_path)) {
-            NRF_LOG_INFO("different drive");
+            NRF_LOG_INFO("rename: different drive");
             OUT_FRAME_NO_DATA(out, DF_PROTO_CMD_VFS_RENAME, DF_STATUS_ERR);
             df_core_send_frame(&out);
             return;
@@ -466,10 +548,32 @@ void df_proto_handler_vfs_rename(df_event_t *evt) {
 
         vfs_driver_t *p_driver = get_driver_by_path(old_path);
         if (p_driver == NULL) {
-            NRF_LOG_INFO("vfs driver is not found");
+            NRF_LOG_INFO("rename: vfs driver is not found");
             OUT_FRAME_NO_DATA(out, DF_PROTO_CMD_VFS_RENAME, DF_STATUS_ERR);
             df_core_send_frame(&out);
             return;
+        }
+
+        /* v8.1-fix3: 如果当前有文件正在被 BLE 传输打开, 先关闭它.
+         * 某些 VFS 驱动 (特别是 LittleFS) 在同一目录下有打开的文件句柄时
+         * 拒绝 rename, 导致 "蓝牙传输模式下无法重命名". */
+        if (file_chunk_state.opened) {
+            p_driver->close_file(&file_chunk_state.vfs_fd);
+            file_chunk_state.opened = false;
+            file_chunk_state.last_path[0] = '\0';
+            file_chunk_state.last_was_write = false;
+            NRF_LOG_INFO("rename: force-closed open file handle before rename");
+        }
+
+        /* v9.0-fix2: 同理 — BLE dir_read 分块协议会在客户端两次发包之间
+         * 保留 dir 句柄, 如果客户端在发 rename 之前刚好处于 "读到一半"
+         * 的状态, LFS 会因父目录有活句柄拒绝 rename. 这里把 dir 句柄
+         * 一并关掉, 跟 file 句柄一起清光. */
+        if (dir_chunk_state.opened && dir_chunk_state.driver != NULL) {
+            dir_chunk_state.driver->close_dir(&dir_chunk_state.dir);
+            dir_chunk_state.opened = false;
+            dir_chunk_state.dir_closed = true;
+            NRF_LOG_INFO("rename: force-closed open dir handle before rename");
         }
 
         vfs_obj_t obj;
@@ -477,22 +581,25 @@ void df_proto_handler_vfs_rename(df_event_t *evt) {
 
         err = p_driver->stat_file(get_file_path(old_path), &obj);
 
-        if (err != VFS_OK) {
-            NRF_LOG_INFO("stat file error");
-            OUT_FRAME_NO_DATA(out, DF_PROTO_CMD_VFS_RENAME, DF_STATUS_ERR);
-            df_core_send_frame(&out);
-            return;
-        }
-
-        ;
-        if (obj.type == VFS_TYPE_DIR) {
+        if (err == VFS_OK && obj.type == VFS_TYPE_DIR) {
             err = p_driver->rename_dir(get_file_path(old_path), get_file_path(new_path));
         } else {
+            /* v8.1-fix3: 即使 stat_file 失败也尝试 rename_file —
+             * stat 可能因 VFS 缓存 / 路径编码 / 并发写入等原因暂时失败,
+             * 但实际 rename 仍然可以成功. */
             err = p_driver->rename_file(get_file_path(old_path), get_file_path(new_path));
+            if (err != VFS_OK) {
+                /* 文件 rename 也失败, 最后尝试当目录 rename */
+                int32_t dir_err = p_driver->rename_dir(get_file_path(old_path), get_file_path(new_path));
+                if (dir_err == VFS_OK) {
+                    err = VFS_OK;
+                }
+            }
         }
 
         if (err != VFS_OK) {
-            NRF_LOG_INFO("rename file error: %d", err);
+            NRF_LOG_INFO("rename error: %d (old=%s new=%s)", err,
+                         nrf_log_push(old_path), nrf_log_push(new_path));
             OUT_FRAME_NO_DATA(out, DF_PROTO_CMD_VFS_RENAME, DF_STATUS_ERR);
             df_core_send_frame(&out);
             return;
@@ -575,3 +682,72 @@ const df_cmd_entry_t df_proto_handler_vfs_entries[] = {
     {DF_PROTO_CMD_VFS_FILE_READ, df_proto_handler_vfs_file_read},
     {DF_PROTO_CMD_VFS_UPDATE_META, df_proto_handler_vfs_update_meta},
     {0, NULL}};
+
+
+/* ============================================================ */
+/*  v8.2-fix11: 公共 API — 强制关闭 BLE 当前持有的上传文件句柄.    */
+/*                                                                */
+/*  设备端 UI scene (account_input / category_input / badge_list  */
+/*  migrate / action_menu delete 等) 在 BLE 连接状态下进行 vfs    */
+/*  操作前必须调用本函数, 防止 LittleFS 因句柄占用拒绝 rename /   */
+/*  mkdir / remove.                                              */
+/*                                                                */
+/*  设计:                                                         */
+/*    - 幂等: 没有打开的句柄时空操作.                              */
+/*    - 不触发 star_upload_hook: 这次关闭是 UI 主动剥夺, BLE 没    */
+/*      正常 close, 数据完整性未知.                                */
+/*    - 同步操作: 在调用方返回前已经清理完毕, 可直接接 rename.     */
+/* ============================================================ */
+void df_proto_vfs_close_active_upload(void) {
+    if (!file_chunk_state.opened) {
+        /* 已经关上 - 不做无效 IO. last_path 也清一下 (防止旧的 path
+         * 残留在 close 后被 hook 误派发, 虽然 opened=false 时 hook
+         * 已经不会被 file_close 主动触发, 但稳一点). */
+        file_chunk_state.last_path[0] = '\0';
+        file_chunk_state.last_was_write = false;
+        return;
+    }
+
+    if (file_chunk_state.vfs_driver != NULL) {
+        file_chunk_state.vfs_driver->close_file(&file_chunk_state.vfs_fd);
+    }
+    file_chunk_state.opened = false;
+    /* 强制关闭, 不调 star_upload_hook_notify_close — 数据完整性未知,
+     * 让用户在 UI 上看到的是: "rename/delete 成功, 没有自动改名". */
+    file_chunk_state.last_path[0] = '\0';
+    file_chunk_state.last_was_write = false;
+    NRF_LOG_INFO("df_proto_vfs_close_active_upload: forced close (UI requested vfs op)");
+}
+
+
+/* ============================================================ */
+/*  v9.0-fix2: 公共 API — 强制关闭 BLE 当前持有的上传目录句柄.    */
+/*                                                                */
+/*  设备端 UI scene 在 BLE 在线时进行 rename / mkdir / remove 之前 */
+/*  必须把 active_upload 和 active_dir 都关一遍 — 二者一起才能把  */
+/*  LFS 父目录上所有的 BLE 残留句柄清光.                          */
+/*                                                                */
+/*  这是修 v8.2-fix11 / v9.0-fix1 留下的一个未覆盖路径: dir_read   */
+/*  是分块协议, 客户端在两次发包之间设备会保留 dir 句柄, UI 在     */
+/*  那个 ~100ms 间窗里的 rename / migrate 全部会被 LFS 拒.        */
+/*                                                                */
+/*  幂等 + 安全:                                                  */
+/*    - 没有未关的目录句柄, 空操作.                                */
+/*    - close 之后状态被打回 "已结束 + 已关", 客户端下次发        */
+/*      DIR_READ 会被当成新会话从头 open_dir, 不会读到半截.        */
+/* ============================================================ */
+void df_proto_vfs_close_active_dir(void) {
+    if (!dir_chunk_state.opened) {
+        /* 没活的句柄, 啥也不做. */
+        return;
+    }
+    if (dir_chunk_state.driver != NULL) {
+        dir_chunk_state.driver->close_dir(&dir_chunk_state.dir);
+    }
+    dir_chunk_state.opened = false;
+    dir_chunk_state.dir_closed = true;
+    /* 注意: chunk / obj 不清, 是怕极端情况下还在 TX 队列里的旧应答帧
+     * 再次进入 dir_read_send_chunk 时拿到陈数据. 那条路径会先看
+     * dir_closed=true 立刻 return, 不会真访问 dir/obj. */
+    NRF_LOG_INFO("df_proto_vfs_close_active_dir: forced close (UI requested vfs op)");
+}

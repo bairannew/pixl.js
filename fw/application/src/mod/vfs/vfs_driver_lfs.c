@@ -273,7 +273,10 @@ int32_t vfs_lfs_remove_dir(const char *dir) {
 }
 
 int32_t vfs_lfs_rename_dir(const char *old_dir, const char *new_dir) {
-    int32_t err = lfs_rename(&lfs, old_dir, old_dir);
+    /* v8.2-fix5: 老 bug — 第二参数错写成 old_dir, 等于"原地 rename",
+     * LFS 直接返回 LFS_ERR_EXIST (-17) -> 我们映射成 VFS_ERR_FAIL.
+     * 真正应当传 new_dir, LFS 自带的目录 rename 支持非空目录. */
+    int32_t err = lfs_rename(&lfs, old_dir, new_dir);
     return vfs_lfs_map_error_code(err);
 }
 
