@@ -563,8 +563,15 @@ ifneq ($(RELEASE), 1)
 OPT = -O2 -g3
 else
 OPT = -Os -ffunction-sections -fdata-sections
+# [fix5] 启用 LTO 以缩减 .text 段, 解决 RELEASE 构建时 application FLASH (0x5B000)
+# 被 sky_badge_db / sky_aar_inject / star_channels 等新增模块挤爆的链接错误:
+#   ld: region FLASH overflowed with .data and user data
+# LTO 在 -Os 之上通常可再省 5-15% 代码体积. nRF5 SDK 17 的 NRF_SECTION 宏
+# (sdh_ble_observers / pwr_mgmt_data / nrf_balloc / cli_command 等) 已在
+# 实现里带 __attribute__((used)), 配合 ld 中的 KEEP() 保留, LTO 兼容.
+OPT += -flto
 endif
-# Uncomment the line below to enable link time optimization
+# Uncomment the line below to enable link time optimization on debug builds too
 # OPT += -flto
 
 # C flags common to all targets
